@@ -4,10 +4,6 @@
 #include <type_traits>
 #include <utility>
 #include <iterator>
-#include <iostream>
-#include <thread>
-#include <chrono>
-#include <unordered_map>
 
 namespace intrusive {
 struct default_tag;
@@ -77,33 +73,8 @@ struct list_base {
   }
 };
 
-inline void dump_element(list_base* b) {
-  std::cout << b->prev << " " << b << " " << b->next << std::endl;
-}
-
-inline void dump_list(list_base* sent) {
-  static std::unordered_map<list_base*, int> to_human;
-  static int next_number = 1;
-  const auto addOrGet = [&] (list_base* ptr) {
-    if (to_human.find(ptr) == to_human.end()) {
-      to_human[ptr] = next_number++;
-    }
-    return to_human[ptr];
-  };
-  std::cout << "Dumping list " << addOrGet(sent) << std::endl;
-  list_base* kek = sent;
-  do {
-    using namespace std::chrono_literals;
-    std::cout << addOrGet(kek->prev) << " " << addOrGet(kek) << " " << addOrGet(kek->next) << std::endl;
-    kek = kek->next;
-    std::this_thread::sleep_for(100ms);
-  } while (kek != sent);
-  std::cout << "End of " << sent << " dump" << std::endl;
-}
-
 template<typename Tag = default_tag>
 struct list_element : public list_base {};
-
 
 template <typename T, typename Tag = default_tag>
 struct list {
@@ -158,7 +129,7 @@ struct list {
   template<bool Const>
   struct generic_iterator {
     using value_type = std::conditional_t<Const, const T, T>;
-    using difference_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
     using iterator_category = std::bidirectional_iterator_tag;
     using pointer = value_type*;
     using reference = value_type&;
@@ -312,6 +283,10 @@ struct list {
     if (this == &other) {
       // TODO
     }
+    if (first == last) {
+      return;
+    }
+    --last;
     first.data->prev->next = last.data->next;
     last.data->next->prev = first.data->prev;
 
