@@ -1,54 +1,53 @@
 #include "intrusive_list.h"
 
-namespace intrusive {
+namespace intrusive::detail {
 
-list_base::list_base() = default;
-
-list_base::list_base(list_base&& other) : prev{other.prev}, next{other.next} {
-  if (other.prev != nullptr && other.next != nullptr) {
-    prev->next = this;
-    next->prev = this;
-    other.prev = other.next = nullptr;
-  }
+bool list_base::is_single() const {
+  return prev == this && next == this;
 }
 
-list_base::list_base(const list_base&) {} // not default!
+list_base::list_base() : prev{this}, next{this} {}
+
+list_base::list_base(list_base&& other) : list_base{} {
+  *this = std::move(other);
+}
+
+list_base::list_base(const list_base&) : list_base{} {} // not default!
 
 list_base& list_base::operator=(list_base&& other) {
   if (this == &other) {
     return *this;
   }
+  assert(is_single()); // otherwise it's illegal to do an assignment
+  if (other.is_single()) {
+    // noop
+    return *this;
+  }
   prev = other.prev;
   next = other.next;
-  other.prev = other.next = nullptr;
-  if (other.prev != nullptr && other.next != nullptr) {
-    prev->next = this;
-    next->prev = this;
-  }
-  return *this;
-}
 
-list_base& list_base::operator=(const list_base& other) {
+  prev->next = this;
+  next->prev = this;
+
+  other.prev = &other;
+  other.next = &other;
   return *this;
 }
 
 void list_base::unlink() {
-  if (prev == nullptr && next == nullptr) {
-    return;
-  }
+  // No need to check in case of single node
   prev->next = next;
   next->prev = prev;
-  prev = next = nullptr;
+  prev = next = this;
 }
 
-/// Insert `other` before this element
 void list_base::insert(list_base& other) {
-  assert(prev != nullptr && next != nullptr);
   if (this == &other) {
     // We don't want to insert the element before itself
     return;
   }
   other.unlink();
+  assert(other.is_single());
 
   prev->next = &other;
   other.prev = this->prev;
@@ -61,4 +60,4 @@ list_base::~list_base() {
   unlink();
 }
 
-} // namespace intrusive
+} // namespace intrusive::detail

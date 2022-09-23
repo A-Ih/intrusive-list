@@ -8,58 +8,55 @@
 namespace intrusive {
 struct default_tag;
 
-struct list_base {
-  // NOTE: marker for non-connected node: prev == next == nullptr
-  list_base* prev{nullptr};
-  list_base* next{nullptr};
+template <typename T, typename Tag>
+struct list;
 
+namespace detail {
+
+struct list_base {
+  // NOTE: marker for non-connected/sentinel node: prev == next == this
   list_base();
   list_base(list_base&& other);
   list_base(const list_base&);
   list_base& operator=(list_base&& other);
-  list_base& operator=(const list_base& other);
-
-  void unlink();
-  void insert(list_base& other);
+  list_base& operator=(const list_base&) = delete;
   ~list_base();
+
+private:
+  /// Returns true if node is not contained in any list or is a sentinel
+  bool is_single() const;
+  /// Remove node from a list (has no effect if a node is single);
+  void unlink();
+  /// Insert `other` before this element
+  void insert(list_base& other);
+
+  template <typename T, typename Tag>
+  friend struct ::intrusive::list;
+
+  list_base* prev;
+  list_base* next;
 };
 
+} // namespace detail
+
 template <typename Tag = default_tag>
-struct list_element : public list_base {};
+struct list_element : public detail::list_base {};
 
 template <typename T, typename Tag = default_tag>
 struct list {
   static_assert(std::is_base_of_v<list_element<Tag>, T>,
                 "T should derive from list_element<Tag>");
 
-  list() {
-    sentinel.prev = &sentinel;
-    sentinel.next = &sentinel;
-  }
-
-  list(list&& other) : list{} {
-    *this = std::move(other);
-  }
+  list() = default;
+  list(list&& other) = default;
 
   list& operator=(list&& other) {
     if (this == &other) {
       return *this;
     }
     clear();
-    if (other.empty()) {
-      return *this;
-    }
-    sentinel.prev = other.sentinel.prev;
-    sentinel.next = other.sentinel.next;
-
-    other.sentinel.prev = &other.sentinel;
-    other.sentinel.next = &other.sentinel;
-
-    sentinel.next->prev = &sentinel;
-    sentinel.prev->next = &sentinel;
-
+    sentinel = std::move(other.sentinel);
     assert(other.empty());
-
     return *this;
   }
 
@@ -79,21 +76,10 @@ struct list {
 
     generic_iterator() = default;
 
+    generic_iterator(const generic_iterator& iter) : data{iter.data} {}
+
+    template <bool Dummy = Const, typename = std::enable_if_t<Dummy>>
     generic_iterator(const iterator& iter) : data{iter.data} {}
-
-    template <bool Dummy = Const, typename = std::enable_if_t<Dummy>>
-    generic_iterator(const const_iterator& iter) : data{iter.data} {}
-
-    generic_iterator& operator=(const iterator& other) {
-      this->data = other.data;
-      return *this;
-    }
-
-    template <bool Dummy = Const, typename = std::enable_if_t<Dummy>>
-    generic_iterator& operator=(const const_iterator& other) {
-      this->data = other.data;
-      return *this;
-    }
 
     pointer operator->() const {
       return static_cast<pointer>(static_cast<list_element<Tag>*>(data));
@@ -136,19 +122,17 @@ struct list {
     }
 
   private:
-    explicit generic_iterator(list_base* data_) : data{data_} {};
+    explicit generic_iterator(detail::list_base* data_) : data{data_} {};
     friend list<T, Tag>;
 
-    list_base* data{nullptr};
+    detail::list_base* data{nullptr};
   };
-
   void push_back(T& val) noexcept {
-    sentinel.insert(static_cast<list_element<Tag>&>(val));
+    insert(end(), val);
   }
 
   void push_front(T& val) noexcept {
-    // works even when the list is empty
-    sentinel.next->insert(val);
+    insert(begin(), val);
   }
 
   void clear() noexcept {
@@ -158,33 +142,27 @@ struct list {
   }
 
   void pop_back() noexcept {
-    assert(!empty());
-    sentinel.prev->unlink();
+    erase(std::prev(end()));
   }
 
   void pop_front() noexcept {
-    assert(!empty());
-    sentinel.next->unlink();
+    erase(begin());
   }
 
   const T& back() const noexcept {
-    assert(!empty());
-    return static_cast<T&>(static_cast<list_element<Tag>&>(*sentinel.prev));
+    return *std::prev(end());
   }
 
   T& back() noexcept {
-    assert(!empty());
-    return static_cast<T&>(static_cast<list_element<Tag>&>(*sentinel.prev));
+    return *std::prev(end());
   }
 
   const T& front() const noexcept {
-    assert(!empty());
-    return static_cast<T&>(static_cast<list_element<Tag>&>(*sentinel.next));
+    return *begin();
   }
 
   T& front() noexcept {
-    assert(!empty());
-    return static_cast<T&>(static_cast<list_element<Tag>&>(*sentinel.next));
+    return *begin();
   }
 
   bool empty() const noexcept {
@@ -192,10 +170,13 @@ struct list {
   }
 
   iterator begin() noexcept {
+    // NOTE: actually begin() in empty list is equivalent to end() -
+    // implementation detail
     return iterator{sentinel.next};
   }
 
   const_iterator begin() const noexcept {
+    // see the note in non-constant implementation
     return const_iterator{sentinel.next};
   }
 
@@ -210,11 +191,13 @@ struct list {
   iterator insert(const_iterator it, T& val) noexcept {
     // if we want to insert the element before itself, the list_base::insert
     // will already deal with this
-    it.data->insert(val);
-    return iterator{static_cast<list_base*>(&val)};
+    auto ptr = static_cast<list_element<Tag>*>(&val);
+    it.data->insert(*ptr);
+    return iterator{ptr};
   }
 
   iterator erase(iterator it) noexcept {
+    assert(!empty());
     iterator old = it++;
     old.data->unlink();
     return it;
