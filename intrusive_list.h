@@ -75,8 +75,7 @@ struct list {
     using reference = value_type&;
 
     generic_iterator() = default;
-
-    generic_iterator(const generic_iterator& iter) : data{iter.data} {}
+    generic_iterator(const generic_iterator& iter) = default;
 
     template <bool Dummy = Const, typename = std::enable_if_t<Dummy>>
     generic_iterator(const iterator& iter) : data{iter.data} {}
@@ -127,6 +126,7 @@ struct list {
 
     detail::list_base* data{nullptr};
   };
+
   void push_back(T& val) noexcept {
     insert(end(), val);
   }
@@ -204,7 +204,7 @@ struct list {
   }
 
   void splice(const_iterator pos, list& other, const_iterator first,
-              const_iterator last) {
+              const_iterator last) noexcept {
     if (first == last) {
       return;
     }
